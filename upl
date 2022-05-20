@@ -1,0 +1,7 @@
+#!/bin/sh
+
+fil=$(find "$(pwd)" -type f | dmenu -i -l 25)
+[ "$fil" = "" ] && exit
+curl -sF "file=@$fil" 0x0.st | xclip -selection c && xclip -o -sel c
+
+notify-send "Your link is in the clipboard"

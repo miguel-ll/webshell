@@ -1,0 +1,38 @@
+#!/bin/sh
+
+# dependencies: sox ffmpeg aoydl youtube-dl
+# maybe: thumb-make normalize
+# example: slowverb -i filepath/list.txt or slowverb -t "belaya noch"
+musicdir="$HOME/music"
+resuldir="$HOME/result"
+[ -z "$musicdir" ] && mkdir "$musicdir"
+#dir="$musicdir/%(title)s.%(ext)s"
+filename="$HOME/list.txt"
+i=1
+
+case $1 in
+	-i) [ -z "$2" ] && echo "File not found! Specify a valid file path." && exit || filename="$2" ;;
+	-t) [ -z "$2" ] && echo "No text provided." && exit || echo "$2" > stmp.txt && filename="stmp.txt" ;;
+	 *) filename="$HOME/list.txt" ;;
+esac
+
+while read -r line
+do
+	searc=$(aoydl -s "$line" | head -n 1)
+        resul="https://youtu.be/${searc% *}"
+	youtube-dl -o "$musicdir/$i%(title)s.%(ext)s" -f 'bestaudio[ext=m4a]' "$resul"
+	i=$(echo $i+1 | bc)
+done < "$filename"
+
+for f in "$musicdir"/*.m4a; do ffmpeg -i "$f" -codec:v copy -codec:a libmp3lame -q:a 2 "${f%.m4a}.mp3"; done
+sox "$musicdir/*.mp3" "$musicdir/final.mp3" speed 0.78 reverb 58
+#normalize "$musicdir/final.mp3"
+[ -z "$resuldir" ] && mkdir "$resuldir"
+mv "$musicdir/final.mp3" "$resuldir/final.mp3"
+#for f in "$resuldir"/*.mp3; do echo "file '$f'" >> $filelist ; done &&
+#ffmpeg -f concat -safe 0 -i $filelist final.mp3
+#thumb-make -on "$1"
+#ffmpeg -loop 1 -framerate 1 -i thumb.png -i $musicdir/final.mp3 -c:v libx264 -preset veryslow -crf 0 -c:a copy -shortest $resuldir/out.mp4
+#rm thumb.png $musicdir/*
+rm "$musicdir"/*
+[ -e stmp.txt ] && rm stmp.txt

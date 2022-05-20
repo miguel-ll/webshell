@@ -1,0 +1,92 @@
+#!/usr/bin/env sh
+
+# aoydl - Aczkolwiek's Own Youtube-DL written by Aczkolwiek Straszyć license: CC0-1.0
+
+#     list 10 videos from specific channel
+# aoydl -c "$(aoydl -sc 'channel name' | sed 1q | cut -f1)" | sed 10q
+#     watch 360p video on mpv
+# mpv "$(aoydl video_id | grep 'itag=18')"
+
+showhelp(){
+	cat << EOF
+aoydl - Aczkolwiek's Own Youtube-DL
+
+Basic usage:
+
+aoydl <VIDEO_URL_OR_ID>      	Get URLs
+aoydl -s <QUERY>             	Search for videos
+aoydl -sc <QUERY>            	Search for channels
+aoydl -c <CHANNEL_URL_OR_ID> 	Get videos from channel
+aoydl -p <PLAYLIST_URL_OR_ID>	Get videos from playlist
+EOF
+}
+
+rndfile="$(printf '.aoydl_' ; tr -dc 'A-Za-z0-9' < '/dev/urandom' | head -c 5)"
+
+geturls(){
+	wget "https://www.youtube.com/get_video_info?video_id=$1&html5=1" -qO "$rndfile"
+	rawdata="$(printf '%s' "$(sed 's/%/\\x/g' "$rndfile")" | sed 's/\\u0026/\&/g')"
+	echo "$rawdata" | sed 's/"/\n/g' > "$rndfile"
+	for url in $(grep googlevideo "$rndfile" | grep -v '/initplayback' | sed 's/%/\\x/g'); do
+		printf '%s' "$url\n"
+	done
+	rm "$rndfile"
+}
+
+channelsearch(){
+	wget -qO- "https://www.youtube.com/results?search_query=$1" | grep -E -o '{"channelId":"[^"]*","title":{"simpleText":"[^"]*"}' | sed 's/"channelId":"//g' | sed 's/","title":{"simpleText":"/	/g' | sed 's/"}//g'
+}
+
+getvideolisting(){
+	if [ "$2" = '-s' ]; then
+		wget "https://www.youtube.com/results?search_query=$1" -qO "$rndfile"
+	elif [ "$2" = '-c' ]; then
+		wget "https://www.youtube.com/channel/$1/videos" -qO "$rndfile"
+	else
+		wget "https://www.youtube.com/playlist?list=$1" -qO "$rndfile"
+	fi
+	grep -o '{"url":"[^"]*","width":[0-9]*,"height":[0-9]*}\]},"title":{"runs":\[{"text":"[^"]*"}\]' "$rndfile" | sed 's#{"url":"https://i.ytimg.com/vi/##g' | sed -r 's#/[^"]*","width":[0-9]*,"height":[0-9]*}\]\},"title":\{"runs":\[\{"text":"#	#g' | sed 's#"}\]$##g'
+	rm "$rndfile"
+}
+
+[ -z "$1" ] && showhelp && exit 0
+
+flag=''
+
+case "$1" in
+	'--help' | '-h')
+		showhelp
+		;;
+	'-s')
+		shift
+		getvideolisting "$*" '-s'
+		;;
+	'-p')
+		if [ ${#2} -eq 34 ]; then
+			getvideolisting "$2"
+		else
+			testlist=$(echo "$2" | sed 's#https://www.youtube.com/playlist?list=##')
+			if [ ${#testlist} -eq 34 ]; then
+				getvideolisting "$testlist"
+			fi
+		fi
+		;;
+	'-c')
+		if [ ${#2} -eq 24 ]; then
+			getvideolisting "$2" '-c'
+		else
+			testchannel=$(echo "$2" | sed 's#https://www.youtube.com/channel/##')
+			if [ ${#testchannel} -eq 24 ]; then
+				getvideolisting "$testchannel" '-c'
+			fi
+		fi
+		;;
+	'-sc')
+		shift
+		channelsearch "$*"
+		;;
+esac
+
+([ ${#1} -eq 11 ] && geturls "$1" "$flag") || geturls "$(echo "$1" | cut -d'=' -f2)" "$flag"
+
+exit 0

@@ -1,0 +1,49 @@
+#!/bin/sh
+
+[ -z "$1" ] && echo "Specify an anime title!" && exit
+name=$(echo "$1" | sed "s/\s/\+/g")
+result=$(curl -s "https://goyabu.com/?s=$name")
+links=$(echo "$result" | shup "div[anime-episode]" | grep -o "<a.*\/.>" | awk -F\" '{print $2}')
+[ ! "$links" ] && echo "No results found." && exit || echo "$links" > tmplinks.txt
+echo "$result" | shup -t "h3" > tmpnames.txt
+
+ffinder="pik"
+promp=$(pr -m -t -w 180 tmpnames.txt tmplinks.txt | $ffinder | grep -o "https.*\/")
+rm tmplinks.txt tmpnames.txt
+[ ! "$promp" ] && echo "You exited." && exit
+curl -s "$promp" | grep -Eo "https://goyabu.com/videos/[0-9]+\/" > epsout.txt
+eps=$(tac epsout.txt)
+rm epsout.txt
+
+n=1
+for i in $eps
+do
+    echo "Episode $n: $i"
+    n=$(echo $n+1 | bc)
+done > epslist.txt
+
+download() {
+    choice=$($ffinder < epslist.txt)
+    rm epslist.txt
+    youtube-dl "${choice##* }"
+}
+
+downloadall() {
+while read -r line
+do
+    youtube-dl "${line##* }"
+done < epslist.txt
+rm epslist.txt && exit
+}
+
+[ -n "$2" ] && case $2 in
+	-d) download ;;
+     -dall) downloadall ;;
+     *) echo "Invalid argument. Use -d (download one episode) or -dall (download all episodes)" && rm epslist.txt && exit ;;
+esac
+
+[ -z "$2" ] && while :; do
+    choice=$($ffinder < epslist.txt)
+    [ "$choice" != "" ] && mpv "${choice##* }"
+    [ "$choice" = "" ] && rm epslist.txt && exit
+done

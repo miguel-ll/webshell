@@ -1,0 +1,13 @@
+#!/bin/sh
+
+case $1 in
+	-s) [ -z "$2" ] && var=$(printf "" | dmenu -i -p "Search:") || var="$2"
+	    [ -z "$var" ] && exit
+	    resul=$(aoydl -s "$var" | head -n 1)
+	    mpv "https://youtu.be/${resul% *}" --no-video ;;
+	-c) url="https://live.musopen.org:8085/streamvbr0"
+	    pkill -f $url || mpv "$url" ;;
+	 -h) echo "The option -c will play classic music and -s will display search prompt" ;;
+	  *) resul=$(aoydl -s "$1" | head -n 1)
+	     mpv "https://youtu.be/${resul% *}" --no-video ;;
+esac

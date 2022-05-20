@@ -1,0 +1,16 @@
+#!/bin/sh
+
+ffinder="pik"
+[ -z "$1" ] && echo "Specify a title!" && exit
+title=$(echo "$1" | sed 's/\s/\-/g')
+result=$(curl -s "https://www.limetorrents.lol/search/all/$title/")
+
+names=$(echo "$result" | shup -t 'div[tt-name]' | sed '1,6d')
+[ ! "$names" ] && echo "No results found." && exit || echo "$names" > limenames.txt
+
+echo "$result" | shup 'a' | grep -o 'http://itorrents.org/.*rel=' | sed 's/..rel=//g' > limelinks.txt
+cat limelinks.txt
+promp=$(pr -m -t -w 180 limenames.txt limelinks.txt | $ffinder | grep -o 'http.*')
+[ ! $promp ] && exit
+rm limenames.txt limelinks.txt
+aria2c --follow-torrent=mem --seed-time=0 "$promp"

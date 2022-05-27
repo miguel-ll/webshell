@@ -1,0 +1,257 @@
+#!/bin/bash
+
+old_ifs="${IFS}"
+cache_dir="${HOME}/.cache/manga-cli"
+#dependencies: imagemagick, zathura
+
+red="\033[1;31m"
+green="\033[1;32m"
+blue="\033[1;34m"
+no_color="\033[0m"
+
+# Text output functions #
+
+print_green() {
+	printf "${green}%s${no_color}\n" "${*}"
+}
+
+print_blue() {
+	printf "${blue}%s${no_color}\n" "${*}"
+}
+
+print_red() {
+	printf "${red}%s${no_color}\n" "${*}" >&2
+}
+
+print_list_item() {
+	printf "${blue}%s${no_color} ${no_color}%s${no_color}\n" "[${1}]" "${2}"
+}
+
+prompt() {
+	printf "${green}%s${no_color} ${blue}%s${no_color}" "${1}" "${2}"
+	read -r reply
+}
+
+open_pdf() { zathura --page=1 "${pdf_dir}" & }
+
+check_number_input() {
+	min_num="${1}"
+	max_num="${2}"
+	input_num="${3}"
+
+	 [ "${input_num}" -ge "${min_num}" ] && [ "${input_num}" -le "${max_num}" ] && return 1 || print_red "Invalid selection" && printf "\n" && return 0
+}
+
+reset_ifs() {
+	IFS="${old_ifs}"
+}
+
+####################
+# Select functions #
+####################
+
+select_manga() {
+	[ "${scraped_manga_count}" -gt 1 ] && prompt "Select manga" "[1-${scraped_manga_count}]: " && selected_manga_num=${reply} || printf "%s\n" "Selected ${result_titles[0]}" && selected_manga_num=1
+
+	check_number_input 1 "${scraped_manga_count}" "${selected_manga_num}"
+
+	[ "${?}" == "0" ] && select_manga || manga_url="${result_urls[${selected_manga_num} - 1]}"
+}
+
+select_chapter() {
+	printf "\e[1A\e[\\" #delete last line
+
+	[ "${chapter_count}" -gt 1 ] && prompt "Select chapter" "[1-${chapter_count}]: " && selected_chapter_num=${reply} || print_green "Selected first chapter" && selected_chapter_num=1
+
+	check_number_input "1" "${chapter_count}" "${selected_chapter_num}"
+
+	[ "${?}" == "0" ] && select_chapter || chapter_url="${chapter_urls[${selected_chapter_num} - 1]}"
+}
+
+# Scrape functions #
+
+scrape_mangas() {
+	# Replace spaces and hyphens with underscores
+	search_query="$(printf "%s" "${manga_title_input}" | tr " -" "_")"
+
+	scraped_results=$(
+		curl --silent "https://manganato.com/search/story/${search_query}" | # Scrape URL
+		sed --silent '/panel-search-story/,$p' | # Delete text before 'panel-search-story'
+		sed --silent '/clear: both/q;p' # Delete text after 'clear: both'
+	)
+
+	IFS=$'\n'
+
+	# Get titles from HTML 'alt' attribute
+	result_titles=($(
+		printf "%s" "${scraped_results}" |
+		awk 'BEGIN{RS="\" />"; FS="alt=\""}NF>1{print $NF}'
+	))
+	scraped_manga_count="${#result_titles[@]}"
+
+	# Get URLs from HTML 'href' attribute
+	result_urls=($(
+		printf "%s" "${scraped_results}" |
+		awk 'BEGIN{RS="\" title="; FS="rel=\"nofollow\" href=\""}NF>1{print $NF}'
+	))
+
+	if [ "${scraped_manga_count}" == "0" ]; then
+		print_red "No search results found"
+		printf "\n"
+		manga_title_input=
+		main
+	else
+		printf "\n"
+		print_blue "Found ${scraped_manga_count} result(s):"
+
+		for ((i = 1; i < scraped_manga_count + 1; i++)); do
+			print_list_item "${i}" "${result_titles[${i} - 1]}"
+		done
+
+		printf "\n"
+	fi
+}
+
+scrape_chapter_list() {
+	print_green "Fetching chapters..."
+
+	IFS=$'\n'
+
+	# Get chapter URLs in reversed order
+	rev_chapter_urls=($(
+		curl --silent "${manga_url}" | # Scrape URL
+		sed --silent '/row-content-chapter/,$p' | # Delete text before 'row-content-chapter'
+		sed --silent '/<\/ul>/q;p' | # Delete text after '</ul>'
+		awk 'BEGIN{RS="\" title="; FS="<a rel=\"nofollow\" class=\"chapter-name text-nowrap\" href=\""}NF>1{print $NF}' # Get URLs from HTML 'href' attribute
+	))
+
+	chapter_urls=()
+
+	# Reverse chapter URLs so they are in the correct order
+	for i in "${rev_chapter_urls[@]}"; do
+		chapter_urls=("$i" "${chapter_urls[@]}")
+	done
+
+	chapter_count="${#chapter_urls[@]}"
+
+	[ "${chapter_count}" == "0" ] && printf "\e[1A\e[\\" && print_red "No chapters found. Exiting..." && exit 1
+}
+
+scrape_chapter() {
+	if [[ -z "${mod_manga_title}" ]]; then
+		manga_title="${result_titles[${selected_manga_num} - 1]}"
+		mod_manga_title="$(printf "%s" "${manga_title}" | tr " " "_")"
+	fi
+
+	image_dir="${cache_dir}/${mod_manga_title}/chapter_${selected_chapter_num}"
+	pdf_dir="${cache_dir}/${mod_manga_title}/chapter_${selected_chapter_num}.pdf"
+
+	clear
+
+	if [[ ! -f "${pdf_dir}" ]]; then # If PDF file does not exist
+		print_green "Fetching chapter ${selected_chapter_num}..."
+
+		IFS=$'\n'
+
+		chapter_image_urls=($(
+			curl --silent "${chapter_url}" | # Scrape URL
+			sed --silent '/container-chapter-reader/,$p' | # Delete text before 'container-chapter-reader'
+			sed --silent '/max-height: 380px/q;p' | # Delete text after 'max-height: 380px'
+			awk 'BEGIN{RS="\" alt="; FS="src=\""}NF>1{print $NF}' # Get image URLs from HTML 'src' attribute
+		))
+
+		printf "\n"
+		print_blue "Downloading images..."
+
+		i=0
+
+		for image_src in "${chapter_image_urls[@]}"; do
+			((i=i + 1))
+
+			# Download image in the background
+			curl -s --create-dirs --header 'Referer: https://readmanganato.com/' --output "${image_dir}/${i}.jpg" \
+				"${image_src}" &
+		done
+
+		wait # Wait until all images are downloaded
+	fi
+}
+
+# Other functions #
+
+search_manga() {
+	[ -z "${manga_title_input}" ] && prompt "Search manga:" && manga_title_input="${reply}"
+	print_green "Searching for '${manga_title_input}'..."
+}
+
+input_controls() {
+	print_blue "[Chapter ${selected_chapter_num}/${chapter_count}] ${manga_title}"
+
+	[ "${selected_chapter_num}" -lt "${chapter_count}" ] && print_list_item "N" "Next chapter"
+
+	[ "${selected_chapter_num}" -gt 1 ] && print_list_item "P" "Previous chapter"
+
+	[ "${chapter_count}" -gt 1 ] && print_list_item "S" "Select chapter"
+
+	print_list_item "R" "Reopen current chapter"
+	print_list_item "A" "Search another manga"
+	print_list_item "Q" "Exit"
+
+	printf "\n"
+	prompt "Enter input:"
+	user_input="$(printf "%s" "${reply}" | tr "[:upper:]" "[:lower:]")"
+
+	case "${user_input}" in
+		n)
+			[ "${selected_chapter_num}" -lt "${chapter_count}" ] && ((selected_chapter_num=selected_chapter_num + 1)) && chapter_url="${chapter_urls[${selected_chapter_num} - 1]}" && open_chapter
+			;;
+		p)
+			[ ${selected_chapter_num} -gt 1 ] && ((selected_chapter_num=selected_chapter_num - 1)) && chapter_url="${chapter_urls[${selected_chapter_num} - 1]}" && open_chapter
+			;;
+		s)
+			[ "${chapter_count}" -gt 1 ] && select_chapter && open_chapter
+			;;
+		r)
+			open_pdf
+			;;
+		a)
+			manga_title_input=
+			mod_manga_title=
+			clear
+			main
+			return 1
+			;;
+		q)
+			clear
+			exit 0
+			;;
+	esac
+	clear
+	input_controls
+}
+
+convert_imgs_to_pdf() {
+	[ ! -f "${pdf_dir}" ] && print_blue "Converting images to PDF..." && convert "$(ls -v "${image_dir}"/*.jpg)" "${pdf_dir}" #python -m img2pdf $(ls -v ${image_dir}/*.jpg) --output "${pdf_dir}"
+		rm -r "${image_dir:?}/"
+		clear
+}
+
+open_chapter() {
+	scrape_chapter
+	convert_imgs_to_pdf
+	open_pdf
+}
+
+trap reset_ifs EXIT
+
+main() {
+	search_manga
+	scrape_mangas
+	select_manga
+	scrape_chapter_list
+	select_chapter
+	open_chapter
+	input_controls
+}
+
+main

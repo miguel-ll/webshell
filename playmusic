@@ -5,9 +5,13 @@ case $1 in
 	    [ -z "$var" ] && exit
 	    resul=$(aoydl -s "$var" | head -n 1)
 	    mpv "https://youtu.be/${resul% *}" --no-video ;;
+	-d) [ -z "$2" ] && var=$(printf "" | dmenu -i -p "Search:") || var="$2"
+	    [ -z "$var" ] && exit
+	    resul=$(aoydl -s "$var" | head -n 1)
+	    youtube-dl -f 'bestaudio[ext=m4a]' "https://youtu.be/${resul% *}";;
 	-c) url="https://live.musopen.org:8085/streamvbr0"
 	    pkill -f $url || mpv "$url" ;;
-	 -h) echo "The option -c will play classic music and -s will display search prompt" ;;
+	 -h) echo "The option -c will play classic music, -d will download the serched song and -s will play the searched song" ;;
 	  *) resul=$(aoydl -s "$1" | head -n 1)
 	     mpv "https://youtu.be/${resul% *}" --no-video ;;
 esac

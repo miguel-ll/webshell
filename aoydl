@@ -1,7 +1,6 @@
-#!/usr/bin/env sh
+#!/bin/sh
 
 # aoydl - Aczkolwiek's Own Youtube-DL written by Aczkolwiek Straszyć license: CC0-1.0
-
 #     list 10 videos from specific channel
 # aoydl -c "$(aoydl -sc 'channel name' | sed 1q | cut -f1)" | sed 10q
 #     watch 360p video on mpv

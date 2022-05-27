@@ -1,0 +1,26 @@
+#!/bin/sh
+
+[ -d "$HOME/wall" ] && rm "$HOME"/wall/wall.png
+walldir="$HOME/save"
+mkdir "$walldir"
+[ -z "$1" ] && query=$(printf "#minimalism\n#Cyberpunk\n#fantasy girl\n#anime" | dmenu -p "Search wallhaven: " -i) || query=$1
+
+sorting=$(printf 'date_added\nrelevance\nrandom\nviews\nfavorites\ntoplist' | dmenu -p "Sort order: " -i)
+
+query=$(echo "$query" | sed 's/#//g')
+query=$(echo "$query" | sed 's/ /+/g')
+echo "$query"
+
+url=https://wallhaven.cc/api/v1/search\?atleast\=1920x1080\&sorting\=$sorting\&q\=$query\&page\=$i
+
+notify-send "downloading wallpapers"
+for i in $(seq 1 5);
+do
+    curl -s "$url" > tmp.txt
+    page=$(head -n 2 tmp.txt | jsp | grep -Eoh "https:\/\/w\.wallhaven.cc\/full\/.*(jpg|png)\b")
+    wget -nc -P "$walldir" $page
+done
+rm tmp.txt
+notify-send "download finished"
+sxiv -o -t "$walldir"/* | xargs setbg
+rm -rf "$walldir"

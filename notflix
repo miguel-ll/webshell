@@ -11,9 +11,10 @@ echo "           __   _    _
 [ -z "$1" ] || [ "$1" = "-h" ] && echo "Error: Specify a title or use ./notflix -d [title] to download the media." && exit
 [ "$1" = "-d" ] && n="$2" || n="$1"
 name=$(printf '%s' "$n" | sed 's/ /\%20/g')
-url=$(curl -s "https://thepiratebay.party/search/$name/1/99/200")
+url=$(curl -s "https://thepiratebay.party/search/$name/1/99/0")
 magnet=$(echo "$url" | grep -E 'magnet\:\?' | sed 's/href\=/ /g' | awk '{print $2}' | sed 's/"/ /g' | head -n 1 | sed 's/ //g')
 [ "$magnet" = "" ] && echo "$n not found." && exit
+printf '%s\n' "$magnet"
 
 case $1 in
 	 -d) aria2c --enable-dht=true --seed-time=0 "$magnet" ;;
